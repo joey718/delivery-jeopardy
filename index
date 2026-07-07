@@ -1,11 +1,43 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Classroom Jeopardy</title>
     <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <style>
+        .loading-screen {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 2000;
+            color: white;
+            font-family: 'Fredoka', sans-serif;
+            font-size: 1.3rem;
+        }
+        .load-error {
+            max-width: 500px;
+            text-align: center;
+            background: rgba(0,0,0,0.3);
+            padding: 20px 30px;
+            border-radius: 15px;
+            border: 2px solid #ff3366;
+        }
+        .footer-link {
+            text-align: center;
+            margin-top: 10px;
+            opacity: 0.45;
+            font-size: 0.8rem;
+        }
+        .footer-link a {
+            color: white;
+        }
         :root {
             --primary: #0066ff;
             --secondary: #ff3366;
@@ -187,6 +219,7 @@
             justify-content: center;
             gap: 20px;
             margin-top: 30px;
+            margin-bottom: 40px;
             flex-wrap: wrap;
         }
         
@@ -228,7 +261,7 @@
         
         .board {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 15px;
             margin-bottom: 30px;
             animation: fadeIn 1s ease 0.4s both;
@@ -251,6 +284,9 @@
             align-items: center;
             justify-content: center;
             line-height: 1.2;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
         }
         
         .cell {
@@ -336,19 +372,15 @@
         }
         
         .modal-header {
-            font-size: 2.5rem;
-            color: var(--gold);
-            margin-bottom: 30px;
-            text-align: center;
-            font-weight: 700;
+            display: none;
         }
         
         .modal-prompt {
-            font-size: 3rem;
-            line-height: 1.5;
-            margin-bottom: 30px;
+            font-size: 4rem;
+            line-height: 1.4;
+            margin-bottom: 15px;
             background: rgba(255, 255, 255, 0.1);
-            padding: 40px;
+            padding: 50px;
             border-radius: 15px;
             border-left: 5px solid var(--gold);
             flex: 1;
@@ -358,12 +390,12 @@
         }
         
         .modal-directions {
-            font-size: 2rem;
-            line-height: 1.5;
+            font-size: 1.5rem;
+            line-height: 1.4;
             color: var(--light);
-            margin-bottom: 30px;
+            margin-bottom: 15px;
             font-style: italic;
-            padding: 30px;
+            padding: 20px;
             background: rgba(0, 0, 0, 0.3);
             border-radius: 15px;
             white-space: pre-wrap;
@@ -375,6 +407,7 @@
             gap: 15px;
             justify-content: center;
             flex-shrink: 0;
+            margin-top: 10px;
         }
         
         .settings-modal .modal-content {
@@ -526,6 +559,10 @@
         document.documentElement.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
         document.body.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
     </script>
+    <div class="loading-screen" id="loadingScreen">
+        <div>Loading categories…</div>
+    </div>
+
     <div class="container">
         <header>
             <h1>DELIVERY JEOPARDY!</h1>
@@ -564,6 +601,8 @@
         </div>
         
         <div class="board" id="board"></div>
+
+        <div class="footer-link"><a href="admin.html" target="_blank">Manage categories &amp; prompts</a></div>
     </div>
     
     <div class="modal" id="promptModal">
@@ -590,96 +629,69 @@
         </div>
     </div>
 
-
     <script>
-        // Hardcoded data from Google Sheet
-        const allCategories = {
-                "MOVIES & TV": [
-                    { prompt: "The Fresh Prince of Bel-Air — Will confronts his father", directions: "Type: Monologue\nTone: Hurt → anger → resignation\n\nYou say you're proud of me. But you're not here. You say you wanted to be, but wanting doesn't fix anything.\n\nI learned how to shave by myself. I learned how to be tough by myself. I learned how to stop expecting you by myself.\n\nAnd everyone keeps telling me I should be grateful you showed up now— but I already learned how to live without you.\n\nSo tell me this: if I wasn't enough then, why should I believe I'm enough now?" },
-                    { prompt: "Black Panther — Killmonger explains his worldview", directions: "Type: Monologue\nTone: Controlled anger, moral certainty\n\nYou had power this whole time. Knowledge. Technology. Safety. And you hid it.\n\nWhile people who looked like me were taught to survive with nothing.\n\nYou say peace matters. But peace that only protects *you* isn't peace — it's comfort.\n\nI'm not asking you to feel guilty. I'm asking you to stop pretending neutrality is kindness.\n\nBecause doing nothing is still a choice." },
-                    { prompt: "Wednesday — Wednesday on emotions", directions: "Type: Monologue\nTone: Dry, ironic, controlled\n\nPeople think emotions make them deep. I think emotions make people loud.\n\nWhen you feel everything all the time, you stop thinking clearly.\n\nI prefer precision. Facts. Control.\n\nThat doesn't mean I feel nothing. It means I don't let feelings decide for me.\n\nIf that makes me strange, I'm fine with strange." },
-                    { prompt: "Spider-Man: No Way Home — Peter explains his mistake", directions: "Type: Monologue\nTone: Overwhelmed, sincere\n\nI didn't mean to break anything. I just wanted things to go back to normal.\n\nEveryone keeps saying I should be careful with power— but no one tells you what to do when every option hurts someone.\n\nI wasn't trying to be a hero. I was trying to help my friends.\n\nAnd now everything's worse.\n\nSo if this is my fault, tell me how I'm supposed to live with that." },
-                    { prompt: "Stranger Things — Feeling like a monster", directions: "Type: Monologue\nTone: Vulnerable, quiet\n\nPeople say I'm special. But they only say that when something goes wrong.\n\nWhen things are calm, they look at me like I don't belong.\n\nI didn't ask to be different. I didn't ask to be afraid all the time.\n\nI just want to know— if I stop being useful, do I still matter?" },
-                    { prompt: "Mean Girls — Realizing the social system", directions: "Type: Monologue\nTone: Fast, self-aware\n\nI thought popularity was about being liked. Turns out it's about control.\n\nEveryone's watching everyone else, pretending not to care, while caring too much.\n\nAnd the worst part? You don't notice you're becoming cruel until it feels normal.\n\nI didn't mean to hurt anyone. I just wanted to belong.\n\nAnd somehow, that made everything worse." },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" }
-                ],
-                "INSPIRATIONAL": [
-                    { prompt: "Excessively Cheerful", directions: "\"Good morning, friends! Isn't democracy just amazing? Today, we gather to support voting reform. So, let's put our hands together and make history, hooray! Just imagine a future where everyone has a say, everyone counts equally, and voting is accessible and easy! Let's make that happen. Turn to your neighbor, smile, high-five, and let's get energized to protect democracy, champion voter rights, and build a brighter future, together, yay!\"" },
-                    { prompt: "Quietly Intense Whisper", directions: "\"They think they can silence us. But our whispers together become a roar. Today, we change everything. It's not through shouting louder, but through the quiet resolve we hold within us. Each whispered word of truth builds until it can no longer be ignored. So lean in, listen closely, and speak softly—but speak with courage. For in these hushed tones, we find our strength, our unity, and ultimately, our victory.\"" },
-                    { prompt: "States Finals Pep Talk", directions: "\"Great moments are born from great opportunity. That's what you have here tonight. That's what you've earned here tonight. One speech. If we debated them ten times, they might win nine. But not this speech. Not tonight. Tonight, we speak confidently, clearly, and passionately. Tonight, we show them what we're made of. Because tonight, we are the greatest debaters in the world.\"" },
-                    { prompt: "Passionate Appeal", directions: "\"This is our moment! The eyes of the future are looking back at us, pleading that we act now. We can't wait another day, another hour, another minute. Let's channel our passion, our anger, our hope into action. Together, we will shape the world we deserve!\"" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" }
-                ],
-                "APOLOGIES": [
-                    { prompt: "Fake Apology", directions: "\"I'm deeply sorry if anyone took offense to my clearly misunderstood comments. It's unfortunate you felt that way, honestly. My intention was obviously not to upset anyone, but I guess not everyone appreciates my sense of humor. So, let's just move on, shall we? Clearly, this was blown out of proportion, but I'm big enough to say sorry—so, you know, sorry.\"" },
-                    { prompt: "Politician's Non-Apology", directions: "\"Mistakes were made, and moving forward, we will learn from these mistakes and become stronger—together. While it's not useful to dwell on the specifics of who did what, it is important that we commit ourselves to improvement. The past is the past, and I pledge today that we will focus on the future, unified and resolved, ensuring this never occurs again. Thank you.\"" },
-                    { prompt: "Genuine and Humble", directions: "\"I made a mistake, and I own it completely. You deserve better from me, and I promise to earn your trust again. I understand that actions speak louder than words, so starting today, I will take clear, concrete steps to make amends. Your forgiveness isn't something I take lightly, and I will work tirelessly to prove myself worthy of it once again. Thank you for giving me the opportunity to make things right.\"" },
-                    { prompt: "Corporate Apology", directions: "\"We deeply regret the recent incident and any inconvenience caused. At our company, we strive for excellence, and clearly, we fell short. We're conducting a thorough review to prevent such incidents in the future. Thank you for your patience and understanding.\"" },
-                    { prompt: "Dramatic Celebrity Apology", directions: "\"I come before you humbled and ashamed. Fame doesn't excuse my actions. I've let down my fans, my family, and myself. I'm committed to personal growth and will use this painful lesson to better myself. Thank you for believing in second chances.\"" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" }
-                ],
-                "GENERIC CONGRESS SPEECHES": [
-                    { prompt: "Passionate Advocacy", directions: "\"Today, colleagues, is the day we act decisively. Our communities demand action on climate change. Ignoring science won't make the storms go away, and silence won't protect future generations. Join me today in voting yes—because our children deserve a livable planet.\"" },
-                    { prompt: "Sarcastic Enthusiasm", directions: "\"Oh sure, senators, let's definitely approve a bill that wastes taxpayer dollars. Because who wouldn't love throwing away millions to fix problems that don't even exist? Let's just forget about healthcare, education, infrastructure, and all those other trivial things. Clearly, we should prioritize the imaginary crises. Seriously, colleagues, let's inject some common sense back into this chamber and reject this nonsensical bill.\"" },
-                    { prompt: "Inspiring Patriotism", directions: "\"Today, colleagues, we vote not just on policy, but on the values that built this nation—justice, fairness, and opportunity for all. Vote yes, and stand proudly for what America truly represents. Our constituents are watching us closely, looking for hope and integrity in their leaders. Let's show them what true leadership is: making decisions rooted in our nation's foundational principles and the promise of a brighter future for every American.\"" },
-                    { prompt: "Dramatic Opposition", directions: "\"This legislation is a wolf in sheep's clothing—promising solutions while delivering nothing but false hope. It burdens taxpayers without solving the root issues. Colleagues, I urge you to see through this facade and vote no.\"" },
-                    { prompt: "Hopeful Future Vision", directions: "\"Imagine a nation where healthcare is not a privilege, but a universal right; where no family fears bankruptcy from medical bills. This bill moves us toward that vision—one of equity, dignity, and compassion. Let's make history today.\"" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" }
-                ],
-                "TOASTS": [
-                    { prompt: "Heartfelt Gratitude", directions: "\"To Coach Carter, whose tireless dedication and patience shaped not just our debating skills but our lives. You've believed in us even when we didn't believe in ourselves, and we are forever grateful.\"" },
-                    { prompt: "Humorous Roast", directions: "\"Here's to our captain, Sam—the only person who can debate themselves and still lose. Seriously, Sam, we appreciate your unique talent for turning every simple argument into a three-hour ordeal. Cheers!\"" },
-                    { prompt: "Over-the-Top Praise", directions: "\"I raise this glass to Jamie—the greatest debate captain, smartest student, and undeniably most talented person who ever walked these halls. Truly, an inspiration to humanity. Jamie's brilliance, grace under pressure, and unmatched eloquence have forever set an impossible standard for the rest of us mere mortals. Jamie, thank you for your greatness, your wit, your charm, and your unfailing ability to win. Cheers to Jamie, who frankly, deserves statues built in their honor.\"" },
-                    { prompt: "Bitter Rivalry Masked as Friendship", directions: "\"A toast to Alex—someone who always kept me motivated... motivated to stay ahead, because second place just isn't my style. Seriously though, congrats on finally catching up. You've been a worthy rival, I mean, friend, throughout these years. I look forward to many more battles—I mean, friendly competitions—in the future. Here's to Alex, a constant reminder of how important it is to never settle for second best. Cheers!\"" },
-                    { prompt: "Inspirational", directions: "\"Tonight, we celebrate not just victories but every defeat that taught us resilience. Here's to a future filled with challenges we'll conquer together, stronger each time.\"" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" },
-                    { prompt: "", directions: "" }
-                ],
-                "SCRIMMAGE SPEECHES": [
-                    { prompt: "Bodega sandwiches are better than deli sandwiches.", directions: "Defend this position" },
-                    { prompt: "Cats make better pets than dogs.", directions: "Defend this position" },
-                    { prompt: "Artificial intelligence does more harm than good.", directions: "Defend this position" },
-                    { prompt: "Humans are fundamentally good.", directions: "Defend this position" },
-                    { prompt: "The US should ban assault weapons.", directions: "Defend this position" },
-                    { prompt: "High school relationships are worth the time and energy.", directions: "Defend this position" },
-                    { prompt: "AI will replace most human jobs by 2050.", directions: "Defend this position" },
-                    { prompt: "NYC should make buses free for all.", directions: "Defend this position" },
-                    { prompt: "The 7 train is the best subway line.", directions: "Defend this position" },
-                    { prompt: "Books are better than movies.", directions: "Defend this position" }
-                ],
-                "IRL POLITICIANS": [
-                    { prompt: "Social media should be regulated by the government.", directions: "Defend this position" },
-                    { prompt: "Individuals have a moral obligation to help others.", directions: "Defend this position" },
-                    { prompt: "Gun ownership should require annual licensing and safety training.", directions: "Defend this position" },
-                    { prompt: "Dating apps should require parental permission for minors.", directions: "Defend this position" },
-                    { prompt: "Autonomous vehicles will completely replace human-driven cars within 20 years.", directions: "Defend this position" },
-                    { prompt: "NYC should expand the NYC Ferry system to all boroughs.", directions: "Defend this position" },
-                    { prompt: "Dollar slice pizza is overrated.", directions: "Defend this position" },
-                    { prompt: "Summer is better than winter.", directions: "Defend this position" },
-                    { prompt: "The voting age should be lowered to 16.", directions: "Defend this position" },
-                    { prompt: "Happiness is more important than success.", directions: "Defend this position" }
-                ]
-        };
-        
+        // ---- Supabase config ----
+        // The "publishable" key below is safe to expose in client-side code —
+        // it's the public/anon key, and write access is locked down by Row
+        // Level Security policies on the Supabase project (see schema.sql).
+        const SUPABASE_URL = 'https://kkjqqyupcuapuwhznxnh.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_LNasopEjo_0UY-7872aePQ_ALI4mx-o';
+        const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const CACHE_KEY = 'categoriesCache_v1';
+
+        // Populated by loadCategoriesFromSupabase() before the game renders.
+        let allCategories = {};
+
+        // Fetches categories + prompts from Supabase (2 queries, once per page load).
+        // Falls back to the last successfully loaded copy (in localStorage) if the
+        // network request fails, so the game still works if Supabase is unreachable.
+        async function loadCategoriesFromSupabase() {
+            try {
+                const { data: categories, error: catErr } = await sb
+                    .from('categories')
+                    .select('id, name')
+                    .order('sort_order', { ascending: true });
+                if (catErr) throw catErr;
+
+                const { data: prompts, error: promptErr } = await sb
+                    .from('prompts')
+                    .select('category_id, position, prompt, directions');
+                if (promptErr) throw promptErr;
+
+                const built = {};
+                const nameById = {};
+                categories.forEach(c => {
+                    nameById[c.id] = c.name;
+                    built[c.name] = Array.from({ length: 10 }, () => ({ prompt: '', directions: '' }));
+                });
+                prompts.forEach(p => {
+                    const name = nameById[p.category_id];
+                    if (name && p.position >= 0 && p.position <= 9) {
+                        built[name][p.position] = {
+                            prompt: p.prompt || '',
+                            directions: p.directions || ''
+                        };
+                    }
+                });
+
+                if (Object.keys(built).length === 0) {
+                    throw new Error('No categories found in Supabase yet — has schema.sql / seed_data.sql been run?');
+                }
+
+                allCategories = built;
+                localStorage.setItem(CACHE_KEY, JSON.stringify(built));
+                return true;
+            } catch (err) {
+                console.error('Failed to load from Supabase, trying cache:', err);
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    allCategories = JSON.parse(cached);
+                    return true;
+                }
+                return false;
+            }
+        }
+
         let gameState = {
             team1Score: 0,
             team2Score: 0,
@@ -762,7 +774,7 @@
         
         // Initialize with first 5 categories (columns B-F from the sheet)
         function initializeDefaultCategories() {
-            gameState.selectedCategories = ["MOVIES & TV", "INSPIRATIONAL", "APOLOGIES", "GENERIC CONGRESS SPEECHES", "TOASTS"];
+            gameState.selectedCategories = ["MOVIES & TV", "INSPIRATIONAL", "APOLOGIES", "CONGRESS VIBES", "TOASTS"];
             localStorage.setItem('selectedCategories', JSON.stringify(gameState.selectedCategories));
             localStorage.setItem('gameVersion', '2.0');
         }
@@ -986,11 +998,27 @@
             }
         }
         
-        // Initialize game directly
-        loadCategories();
-        loadGameState();
-        renderBoard();
-        updateJudgesList();
+        // Initialize game: load content from Supabase first, then render
+        document.addEventListener('DOMContentLoaded', async function() {
+            const loadingScreen = document.getElementById('loadingScreen');
+            const ok = await loadCategoriesFromSupabase();
+
+            if (!ok) {
+                loadingScreen.innerHTML = `
+                    <div class="load-error">
+                        Couldn't load categories from Supabase, and no offline copy was found.<br><br>
+                        Check your internet connection, or confirm the Supabase project has data
+                        (schema.sql + seed_data.sql have been run).
+                    </div>`;
+                return;
+            }
+
+            loadCategories();
+            loadGameState();
+            renderBoard();
+            updateJudgesList();
+            loadingScreen.style.display = 'none';
+        });
         
         // Close modals when clicking outside
         window.onclick = function(event) {
@@ -1004,5 +1032,4 @@
         }
     </script>
 </body>
-
 </html>
